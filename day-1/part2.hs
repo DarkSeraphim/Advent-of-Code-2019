@@ -1,19 +1,15 @@
-readInteger :: String -> Integer
-readInteger = read
-
-computeFuel :: Integer -> Integer
-computeFuel = (subtract 2) . (\x -> x `div` 3)
+import Helpers (readInteger)
 
 computeFuelForWeight :: Integer -> Integer
-computeFuelForWeight weight
-    | weight <= 8 = 0
-    | otherwise = fuel + computeFuelForWeight fuel
-        where fuel = computeFuel weight
+computeFuelForWeight = (subtract 2) . (\x -> x `div` 3)
 
-computeModule :: Integer -> Integer
-computeModule = computeFuelForWeight
+computeModuleFuel :: Integer -> Integer
+computeModuleFuel weight
+    | weight <= 8 = 0
+    | otherwise = fuel + computeModuleFuel fuel
+        where fuel = computeFuelForWeight weight
 
 main = do
   contents <- getContents
   let modules = map readInteger (lines contents)
-  print $ foldr (+) 0 $ map computeModule modules
+  print $ foldr (+) 0 $ map computeModuleFuel modules

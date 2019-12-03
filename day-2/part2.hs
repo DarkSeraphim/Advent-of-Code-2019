@@ -1,17 +1,8 @@
 import Data.Map (Map, insert, (!), fromList)
+import Helpers (split, readInteger)
+
 type IP = Integer
 type Memory = Map Integer Integer
-
-split :: Char -> String -> [String]
-split c (x:xs)
-    | x == c = [] : split c xs
-    | null xs = [[x]]
-    | otherwise = (x : head result) : tail result
-        where result = split c xs
-split c [] = []
-
-readInteger :: String -> Integer
-readInteger = read
 
 runAdd :: IP -> Memory -> Integer
 runAdd ip memory = run (ip + 4) newMemory

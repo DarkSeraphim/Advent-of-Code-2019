@@ -1,13 +1,9 @@
-readInteger :: String -> Integer
-readInteger = read
+import Helpers (readInteger)
 
-computeFuel :: Integer -> Integer
-computeFuel = (subtract 2) . (\x -> x `div` 3)
-
-computeModule :: Integer -> Integer
-computeModule = computeFuel
+computeModuleFuel :: Integer -> Integer
+computeModuleFuel = (subtract 2) . (\x -> x `div` 3)
 
 main = do
   contents <- getContents
   let modules = map readInteger (lines contents)
-  print $ foldr (+) 0 $ map computeModule modules
+  print $ foldr (+) 0 $ map computeModuleFuel modules
