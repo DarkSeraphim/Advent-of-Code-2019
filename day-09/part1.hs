@@ -1,13 +1,14 @@
-import Debug.Trace (trace)
+import Control.Concurrent
+import Control.Concurrent.Chan
 import Data.List (permutations)
-import Data.Map (Map, insert, findWithDefault, fromList, (!))
+import Data.Map (Map, insert, findWithDefault, (!), fromList)
 import Helpers (split, readInteger)
 
 type IP = Integer
 type Instruction = Integer
 type Mode = Integer
 type Memory = Map Integer Integer
-type Input = [Integer]
+type Input = [Chan (Maybe Integer)]
 type ParamMode = [Mode]
 type RelativeBase = Integer
 
@@ -26,7 +27,7 @@ readParameter ip i memory base modes
     where mode = modes !! (fromIntegral i)
           value = findWithDefault 0 (ip + i) memory
 
-runAdd :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runAdd :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runAdd ip memory base input modes = run (ip + 4) newMemory base input
   where value1 = readParameter ip 1 memory base modes
         value2 = readParameter ip 2 memory base modes
@@ -34,7 +35,7 @@ runAdd ip memory base input modes = run (ip + 4) newMemory base input
         value3 = value1 + value2
         newMemory = insert addr3 value3 memory
 
-runMult :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runMult :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runMult ip memory base input modes = run (ip + 4) newMemory base input
   where value1 = readParameter ip 1 memory base modes
         value2 = readParameter ip 2 memory base modes
@@ -42,18 +43,22 @@ runMult ip memory base input modes = run (ip + 4) newMemory base input
         value3 = value1 * value2
         newMemory = insert addr3 value3 memory
 
-runRead :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
-runRead ip memory base input modes = run (ip + 2) newMemory base newInput
-  where addr1 = readAddress ip 1 memory base modes
-        (value:newInput) = input
-        newMemory = insert addr1 value memory -- Find a way to replace this with real input
+runRead :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
+runRead ip memory base input modes = do
+                                  let addr1 = readAddress ip 1 memory base modes
+                                  let cin = input !! 0
+                                  Just value <- readChan cin
+                                  let newMemory = insert addr1 value memory
+                                  run (ip + 2) newMemory base input
 
-runPrint :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
-runPrint ip memory base input modes = value : (run (ip + 2) newMemory base input)
-  where value = readParameter ip 1 memory base modes
-        newMemory = memory
+runPrint :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
+runPrint ip memory base input modes = do
+                                  let value = readParameter ip 1 memory base modes
+                                  let cout = input !! 1
+                                  writeChan cout (Just value)
+                                  run (ip + 2) memory base input 
 
-runJumpIfTrue :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runJumpIfTrue :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runJumpIfTrue ip memory base input modes
   | condition == True = run value2 memory base input
   | otherwise = run (ip + 3) memory base input
@@ -61,7 +66,7 @@ runJumpIfTrue ip memory base input modes
         value2 = readParameter ip 2 memory base modes
         condition = value1 /= 0
 
-runJumpIfFalse :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runJumpIfFalse :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runJumpIfFalse ip memory base input modes
   | condition == True = run value2 memory base input
   | otherwise = run (ip + 3) memory base input
@@ -69,7 +74,7 @@ runJumpIfFalse ip memory base input modes
         value2 = readParameter ip 2 memory base modes
         condition = value1 == 0
 
-runLessThan :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runLessThan :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runLessThan ip memory base input modes = run (ip + 4) newMemory base input
   where value1 = readParameter ip 1 memory base modes
         value2 = readParameter ip 2 memory base modes
@@ -77,7 +82,7 @@ runLessThan ip memory base input modes = run (ip + 4) newMemory base input
         result = if value1 < value2 then 1 else 0
         newMemory = insert addr3 result memory
 
-runEquals :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runEquals :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runEquals ip memory base input modes = run (ip + 4) newMemory base input
   where value1 = readParameter ip 1 memory base modes
         value2 = readParameter ip 2 memory base modes
@@ -85,13 +90,13 @@ runEquals ip memory base input modes = run (ip + 4) newMemory base input
         result = if value1 == value2 then 1 else 0
         newMemory = insert addr3 result memory
 
-runRelBase :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
+runRelBase :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
 runRelBase ip memory base input modes = run (ip + 2) memory newBase input
   where value1 = readParameter ip 1 memory base modes
         newBase = base + value1
 
-runExit :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> [Integer]
-runExit ip memory base modes input = []
+runExit :: IP -> Memory -> RelativeBase -> Input -> ParamMode -> IO ()
+runExit ip memory base input modes = writeChan (input !! 1) Nothing
 
 parseMode :: Integer -> Integer -> Mode
 parseMode i op = (op `div` (10 ^ (i + 1))) `mod` 10
@@ -105,7 +110,7 @@ parseModes op = (ins, [-1, param1, param2, param3])
           param2 = parseMode 2 op
           param3 = parseMode 3 op
 
-run :: IP -> Memory -> RelativeBase -> Input -> [Integer]
+run :: IP -> Memory -> RelativeBase -> Input -> IO ()
 run ip memory base input
   | ins == 1 = runAdd ip memory base input modes
   | ins == 2 = runMult ip memory base input modes
@@ -120,11 +125,25 @@ run ip memory base input
     where op = memory ! ip
           (ins, modes) = parseModes op
 
-preprocess :: Memory -> Input -> [Integer]
-preprocess memory input =
-  run 0 memory 0 input
+preprocess :: Memory -> IO (Chan (Maybe Integer), Chan (Maybe Integer))
+preprocess memory = do
+  input <- newChan
+  output <- newChan
+  forkIO (run 0 memory 0 [input, output])
+  return (input, output)
+
+waitForExit :: Maybe a -> Chan (Maybe a) -> IO [a]
+waitForExit (Just v) c = do
+            r <- readChan c
+            z <- waitForExit r c
+            return (v:z)
+waitForExit Nothing c = return []
 
 main = do
   commands <- fmap (map readInteger) (fmap (split ',') getLine)
   let memory = fromList (zip [0..] commands)
-  print $ preprocess memory [1]
+  (input, output) <- preprocess memory
+  i <- fmap readInteger getLine
+  writeChan input (Just i)
+  results <- fmap tail (waitForExit (Just 0) output) -- Remove the Just 0 we started with
+  print results
